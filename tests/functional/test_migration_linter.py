@@ -160,17 +160,23 @@ class PostgresqlBackwardCompatibilityDetectionTestCase(
         self.assertTrue(linter.nb_warnings)
 
 
-class CustomNamedAppGatherMigrationsTestCase(BaseBackwardCompatibilityDetection, unittest.TestCase):
+class CustomNamedAppGatherMigrationsTestCase(
+    BaseBackwardCompatibilityDetection, unittest.TestCase
+):
     databases = ["sqlite"]
 
     def test_custom_named_app_gather_all_migrations(self):
         linter = self._get_linter()
-        app_labels = [migration.app_label for migration in linter._gather_all_migrations()]
+        app_labels = [
+            migration.app_label for migration in linter._gather_all_migrations()
+        ]
         self.assertNotIn(fixtures.CUSTOM_APP_NAME, app_labels)
         self.assertIn(DefaultConfig.label, app_labels)
 
     def test_custom_named_app_gather_git_migrations(self):
         linter = self._get_linter()
-        app_labels = [migration.app_label for migration in linter._gather_migrations_git("v0.1.4")]
+        app_labels = [
+            migration.app_label for migration in linter._gather_migrations_git("v0.1.4")
+        ]
         self.assertNotIn(fixtures.CUSTOM_APP_NAME, app_labels)
         self.assertIn(DefaultConfig.label, app_labels)

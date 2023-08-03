@@ -9,7 +9,7 @@ import re
 from enum import Enum, unique
 from importlib.util import find_spec
 from subprocess import PIPE, Popen
-from typing import Callable, Iterable
+from typing import Callable, Dict, Iterable
 
 from django.conf import settings
 from django.core.management import call_command
@@ -381,10 +381,11 @@ class MigrationLinter:
         logger.info(f"Executing {git_diff_command}")
         diff_process = Popen(git_diff_command, shell=True, stdout=PIPE, stderr=PIPE)
 
-        path_to_migration = {
-            find_spec(migration.__module__).origin: migration
-            for migration in self._gather_all_migrations()
-        }
+        path_to_migration: Dict[str, Migration] = {}
+        for migration in self._gather_all_migrations():
+            if spec := find_spec(migration.__module__):
+                path_to_migration[str(spec.origin)] = migration
+
         for line in map(
             clean_bytes_to_str, diff_process.stdout.readlines()  # type: ignore
         ):
@@ -397,7 +398,10 @@ class MigrationLinter:
                 ]
                 if suitable_migrations:
                     migration = suitable_migrations[0]
-                    if migrations_list is None or (migration.app_label, migration.name) in migrations_list:
+                    if (
+                        migrations_list is None
+                        or (migration.app_label, migration.name) in migrations_list
+                    ):
                         migrations.append(migration)
                 else:
                     app_label, name = split_migration_path(line)
