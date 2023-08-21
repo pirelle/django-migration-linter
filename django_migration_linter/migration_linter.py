@@ -383,7 +383,8 @@ class MigrationLinter:
 
         path_to_migration: Dict[str, Migration] = {}
         for migration in self._gather_all_migrations():
-            if spec := find_spec(migration.__module__):
+            spec = find_spec(migration.__module__)
+            if spec:
                 path_to_migration[str(spec.origin)] = migration
 
         for line in map(
