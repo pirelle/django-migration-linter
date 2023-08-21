@@ -419,7 +419,7 @@ class MigrationLinter:
             ):
                 output.append(line)
             logger.error("Error while git diff command:\n{}".format("".join(output)))
-            raise Exception("Error while executing git diff command")
+            raise Exception("Error while executing git diff command {}".format(str(output)))
         return migrations
 
     def _gather_all_migrations(
