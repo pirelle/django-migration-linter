@@ -10,6 +10,8 @@ from django_migration_linter import MigrationLinter
 from tests import fixtures
 from tests.test_project.app_with_custom_name.apps import DefaultConfig
 
+V014_REVISION = "1245e7939dde000af1fd888070c2bd14b5ba29c6"
+
 
 class BaseBackwardCompatibilityDetection:
     def setUp(self, *args, **kwargs):
@@ -110,7 +112,7 @@ class BaseBackwardCompatibilityDetectionTests(BaseBackwardCompatibilityDetection
         self._test_linter_finds_no_errors(app)
 
     def test_with_git_ref(self):
-        self._test_linter_finds_errors(commit_id="1245e7939d")
+        self._test_linter_finds_errors(commit_id=V014_REVISION)
 
     def test_failing_get_sql(self):
         call_command("migrate", "app_unique_together", database=self.database)
@@ -176,7 +178,8 @@ class CustomNamedAppGatherMigrationsTestCase(
     def test_custom_named_app_gather_git_migrations(self):
         linter = self._get_linter()
         app_labels = [
-            migration.app_label for migration in linter._gather_migrations_git("1245e7939d")
+            migration.app_label
+            for migration in linter._gather_migrations_git(V014_REVISION)
         ]
         self.assertNotIn(fixtures.CUSTOM_APP_NAME, app_labels)
         self.assertIn(DefaultConfig.label, app_labels)
