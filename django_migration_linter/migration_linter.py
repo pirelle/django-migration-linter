@@ -384,10 +384,11 @@ class MigrationLinter:
         path_to_migration: Dict[str, Migration] = {}
         for migration in self._gather_all_migrations():
             spec = find_spec(migration.__module__)
-            if spec:
-                migration_full_path = str(spec.origin)
+            if spec and spec.origin:
+                migration_full_path = spec.origin
                 assert migration_full_path.startswith(self.django_path)
-                migration_path = migration_full_path[len(self.django_path)+1:]
+                migration_name_start_index = len(self.django_path) + 1
+                migration_path = migration_full_path[migration_name_start_index:]
                 path_to_migration[migration_path] = migration
 
         for line in map(
@@ -419,7 +420,9 @@ class MigrationLinter:
             ):
                 output.append(line)
             logger.error("Error while git diff command:\n{}".format("".join(output)))
-            raise Exception("Error while executing git diff command {}".format(str(output)))
+            raise Exception(
+                "Error while executing git diff command {}".format(str(output))
+            )
         return migrations
 
     def _gather_all_migrations(
