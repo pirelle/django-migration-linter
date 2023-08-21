@@ -176,7 +176,7 @@ class CustomNamedAppGatherMigrationsTestCase(
     def test_custom_named_app_gather_git_migrations(self):
         linter = self._get_linter()
         app_labels = [
-            migration.app_label for migration in linter._gather_migrations_git("v0.1.4")
+            migration.app_label for migration in linter._gather_migrations_git("v5.0.0")
         ]
         self.assertNotIn(fixtures.CUSTOM_APP_NAME, app_labels)
         self.assertIn(DefaultConfig.label, app_labels)
