@@ -381,14 +381,6 @@ class MigrationLinter:
         logger.info(f"Executing {git_diff_command}")
         diff_process = Popen(git_diff_command, shell=True, stdout=PIPE, stderr=PIPE)
 
-        git_tag_command = ("cd {} && git log --oneline").format(self.django_path)
-        print("logs")
-        print(
-            Popen(
-                git_tag_command, shell=True, stdout=PIPE, stderr=PIPE
-            ).stdout.readlines()
-        )
-
         path_to_migration: Dict[str, Migration] = {}
         for migration in self._gather_all_migrations():
             spec = find_spec(migration.__module__)
