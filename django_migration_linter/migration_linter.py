@@ -385,20 +385,18 @@ class MigrationLinter:
         for migration in self._gather_all_migrations():
             spec = find_spec(migration.__module__)
             if spec:
-                path_to_migration[str(spec.origin)] = migration
+                migration_full_path = str(spec.origin)
+                assert migration_full_path.startswith(self.django_path)
+                migration_path = migration_full_path[len(self.django_path)+1:]
+                path_to_migration[migration_path] = migration
 
         for line in map(
             clean_bytes_to_str, diff_process.stdout.readlines()  # type: ignore
         ):
             # Only gather lines that include added migrations
             if self.is_migration_file(line):
-                suitable_migrations = [
-                    migration
-                    for path, migration in path_to_migration.items()
-                    if path.endswith(line)
-                ]
-                if suitable_migrations:
-                    migration = suitable_migrations[0]
+                migration = path_to_migration.get(line)
+                if migration:
                     if (
                         migrations_list is None
                         or (migration.app_label, migration.name) in migrations_list
