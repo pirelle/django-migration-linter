@@ -110,7 +110,7 @@ class BaseBackwardCompatibilityDetectionTests(BaseBackwardCompatibilityDetection
         self._test_linter_finds_no_errors(app)
 
     def test_with_git_ref(self):
-        self._test_linter_finds_errors(commit_id="v0.1.4")
+        self._test_linter_finds_errors(commit_id="1245e7939d")
 
     def test_failing_get_sql(self):
         call_command("migrate", "app_unique_together", database=self.database)
@@ -176,7 +176,7 @@ class CustomNamedAppGatherMigrationsTestCase(
     def test_custom_named_app_gather_git_migrations(self):
         linter = self._get_linter()
         app_labels = [
-            migration.app_label for migration in linter._gather_migrations_git("v5.0.0")
+            migration.app_label for migration in linter._gather_migrations_git("1245e7939d")
         ]
         self.assertNotIn(fixtures.CUSTOM_APP_NAME, app_labels)
         self.assertIn(DefaultConfig.label, app_labels)
