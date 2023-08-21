@@ -379,6 +379,7 @@ class MigrationLinter:
         ).format(self.django_path, git_commit_id)
         logger.info(f"Executing {git_diff_command}")
         diff_process = Popen(git_diff_command, shell=True, stdout=PIPE, stderr=PIPE)
+
         for line in map(
             clean_bytes_to_str, diff_process.stdout.readlines()  # type: ignore
         ):
