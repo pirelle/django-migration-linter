@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import unittest
+from unittest import skipIf
 
+import django
 from django.conf import settings
 from django.core.management import call_command
 
@@ -32,22 +34,32 @@ class BaseBackwardCompatibilityDetection:
         linter = self._launch_linter(app, commit_id)
         self.assertTrue(linter.has_errors)
         self.assertNotEqual(linter.nb_valid + linter.nb_erroneous, 0)
+        self.assertGreater(linter.nb_total, 0)
 
     def _test_linter_finds_no_errors(self, app=None, commit_id=None):
         linter = self._launch_linter(app, commit_id)
         self.assertFalse(linter.has_errors)
         self.assertNotEqual(linter.nb_valid + linter.nb_erroneous, 0)
+        self.assertGreater(linter.nb_total, 0)
+
+    def _test_linter_linted_no_migration(self, app=None, commit_id=None):
+        linter = self._launch_linter(app, commit_id)
+        self.assertEqual(linter.nb_valid, 0)
+        self.assertEqual(linter.nb_erroneous, 0)
+        self.assertEqual(linter.nb_total, 0)
 
     def _launch_linter(self, app=None, commit_id=None):
-        linter = MigrationLinter(
+        linter = self._get_linter()
+        linter.lint_all_migrations(app_label=app, git_commit_id=commit_id)
+        return linter
+
+    def _get_linter(self):
+        return MigrationLinter(
             self.test_project_path,
             database=self.database,
             no_cache=True,
         )
-        linter.lint_all_migrations(app_label=app, git_commit_id=commit_id)
-        return linter
 
-    # *** Tests ***
     def test_create_table_with_not_null_column(self):
         app = fixtures.CREATE_TABLE_WITH_NOT_NULL_COLUMN
         self._test_linter_finds_no_errors(app)
@@ -88,6 +100,11 @@ class BaseBackwardCompatibilityDetection:
         app = fixtures.ADD_NOT_NULL_COLUMN_FOLLOWED_BY_DEFAULT
         self._test_linter_finds_no_errors(app)
 
+    @skipIf(django.VERSION[0] < 5, "db_default was implemented in Django 5.0")
+    def test_accept_not_null_column_followed_by_adding_db_default(self):
+        app = fixtures.ADD_NOT_NULL_COLUMN_FOLLOWED_BY_DB_DEFAULT
+        self._test_linter_finds_no_errors(app)
+
     def test_detect_alter_column(self):
         app = fixtures.ALTER_COLUMN
         self._test_linter_finds_no_errors(app)
@@ -114,6 +131,22 @@ class BaseBackwardCompatibilityDetection:
         with self.assertRaises(ValueError):
             linter.get_sql("app_unique_together", "0003")
 
+    def test_custom_named_app(self):
+        # Folder name is not found.
+        app = fixtures.CUSTOM_APP_NAME_DIRECTORY
+        self._test_linter_linted_no_migration(app)
+
+        # Django app name is found.
+        app = fixtures.CUSTOM_APP_LABEL
+        self._test_linter_finds_no_errors(app)
+
+        # And with git ref:
+        app = fixtures.CUSTOM_APP_NAME_DIRECTORY
+        self._test_linter_linted_no_migration(app, commit_id="v0.1.4")
+
+        app = fixtures.CUSTOM_APP_LABEL
+        self._test_linter_finds_no_errors(app, commit_id="v0.1.4")
+
 
 class SqliteBackwardCompatibilityDetectionTestCase(
     BaseBackwardCompatibilityDetection, unittest.TestCase
@@ -126,6 +159,11 @@ class SqliteBackwardCompatibilityDetectionTestCase(
 
     def test_detect_make_column_not_null_with_django_default(self):
         app = fixtures.MAKE_NOT_NULL_WITH_DJANGO_DEFAULT
+        self._test_linter_finds_errors(app)
+
+    @skipIf(django.VERSION[0] < 5, "db_default was implemented in Django 5.0")
+    def test_accept_not_null_column_followed_by_adding_db_default(self):
+        app = fixtures.ADD_NOT_NULL_COLUMN_FOLLOWED_BY_DB_DEFAULT
         self._test_linter_finds_errors(app)
 
     def test_detect_make_column_not_null_with_lib_default(self):

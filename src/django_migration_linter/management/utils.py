@@ -40,6 +40,18 @@ def register_linting_configuration_options(parser: CommandParser) -> None:
         help="select the SQL analyser",
     )
 
+    parser.add_argument(
+        "--ignore-sqlmigrate-errors",
+        action="store_true",
+        help="ignore failures of sqlmigrate command",
+    )
+
+    parser.add_argument(
+        "--ignore-initial-migrations",
+        action="store_true",
+        help="ignore initial migrations",
+    )
+
 
 def configure_logging(verbosity: int) -> None:
     logger = logging.getLogger("django_migration_linter")

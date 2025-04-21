@@ -1,3 +1,45 @@
+## 6.0.0
+
+Feature:
+- **Breaking change**: Handle custom Django app label when gathering migrations from git reference. (#262)
+This means that, an app that was previously referenced by its folder name, will now be referenced by its Django app label.
+
+Miscellaneous:
+- Add py.typed file (#303)
+
+## 5.2.0
+
+Feature:
+- Allow ignoring all initial migrations, with `--ignore-initial-migrations`
+
+Bug:
+- Don't detect an index creation during a transaction with an exclusive lock, when the table is being created (#264)
+
+Miscellaneous:
+
+- Add support for Python 3.13
+- Add support for Django 5.1
+- Drop support for Python 3.7 and 3.8
+- Mark md5 hashing as not used for security
+
+## 5.1.0
+
+Feature:
+- Support Django 5.0 `db_default` attribute (issue #275)
+- Allow ignoring the failures of `sqlmigrate` commands, with `--ignore-sqlmigrate-errors` option (issue #274)
+
+Bug:
+- Don't detect 'IS NOT NULL' as backward incompatible changes (issue #263)
+- Don't consider UNIQUE INDEX creation as making a column not nullable
+
+Miscellaneous:
+
+- Migrated from `setup.py` and `setup.cfg` to `pyproject.toml`
+- Add support for Python 3.12
+- Add support for Django 5.0
+- Avoid git command injections
+- Remove Codecov integration
+
 ## 5.0.0
 
 - **Breaking change**: stop silently ignoring when the internal `sqlmigrate` call fails and the linter cannot analyse the migration.

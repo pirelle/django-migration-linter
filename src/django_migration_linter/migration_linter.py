@@ -7,8 +7,9 @@ import logging
 import os
 import re
 from enum import Enum, unique
+from importlib.util import find_spec
 from subprocess import PIPE, Popen
-from typing import Callable, Iterable
+from typing import Callable, Dict, Iterable
 
 from django.conf import settings
 from django.core.management import call_command
@@ -63,6 +64,8 @@ class MigrationLinter:
         all_warnings_as_errors: bool = False,
         no_output: bool = False,
         analyser_string: str | None = None,
+        ignore_sqlmigrate_errors: bool = False,
+        ignore_initial_migrations: bool = False,
     ):
         # Store parameters and options
         self.django_path = path
@@ -86,6 +89,8 @@ class MigrationLinter:
             settings.DATABASES[self.database]["ENGINE"],
             analyser_string=analyser_string,
         )
+        self.ignore_sqlmigrate_errors = ignore_sqlmigrate_errors
+        self.ignore_initial_migrations = ignore_initial_migrations
 
         # Initialise counters
         self.reset_counters()
@@ -159,7 +164,9 @@ class MigrationLinter:
 
         md5hash = self.get_migration_hash(app_label, migration_name)
 
-        if self.should_ignore_migration(app_label, migration_name, operations):
+        if self.should_ignore_migration(
+            app_label, migration_name, operations, is_initial=migration.initial
+        ):
             self.print_linting_msg(
                 app_label, migration_name, "IGNORE", MessageType.IGNORE
             )
@@ -229,7 +236,7 @@ class MigrationLinter:
 
     @staticmethod
     def get_migration_hash(app_label: str, migration_name: str) -> str:
-        hash_md5 = hashlib.md5()
+        hash_md5 = hashlib.md5(usedforsecurity=False)
         with open(get_migration_abspath(app_label, migration_name), "rb") as f:
             for chunk in iter(lambda: f.read(4096), b""):
                 hash_md5.update(chunk)
@@ -321,13 +328,24 @@ class MigrationLinter:
                     database=self.database,
                     stdout=dev_null,
                 )
-        except (ValueError, ProgrammingError):
-            logger.warning(
-                "Error while executing sqlmigrate on (%s, %s).",
-                app_label,
-                migration_name,
-            )
-            raise
+        except (ValueError, ProgrammingError) as err:
+            if self.ignore_sqlmigrate_errors:
+                logger.warning(
+                    "Error while executing sqlmigrate on (%s, %s) with exception: %s. "
+                    "Continuing execution with empty SQL.",
+                    app_label,
+                    migration_name,
+                    str(err),
+                )
+                sql_statement = ""
+            else:
+                logger.warning(
+                    "Error while executing sqlmigrate on (%s, %s) with exception: %s.",
+                    app_label,
+                    migration_name,
+                    str(err),
+                )
+                raise
         return sql_statement.splitlines()
 
     @staticmethod
@@ -372,32 +390,66 @@ class MigrationLinter:
     def _gather_migrations_git(
         self, git_commit_id: str, migrations_list: list[tuple[str, str]] | None = None
     ) -> Iterable[Migration]:
-        migrations = []
         # Get changes since specified commit
-        git_diff_command = (
-            "cd {} && git diff --relative --name-only --diff-filter=AR {}"
-        ).format(self.django_path, git_commit_id)
-        logger.info(f"Executing {git_diff_command}")
-        diff_process = Popen(git_diff_command, shell=True, stdout=PIPE, stderr=PIPE)
+        git_diff_command = [
+            "git",
+            "diff",
+            "--relative",
+            "--name-only",
+            "--diff-filter=AR",
+            git_commit_id,
+        ]
+        logger.info(f"Executing {git_diff_command} (in {self.django_path})")
+        diff_process = Popen(
+            git_diff_command,
+            stdout=PIPE,
+            stderr=PIPE,
+            cwd=self.django_path,
+        )
+
+        diskpath_and_migration: Dict[str, Migration] = {}
+        for migration in self._gather_all_migrations():
+            spec = find_spec(migration.__module__)
+            if spec:
+                diskpath_and_migration[str(spec.origin)] = migration
+
+        migrations = []
         for line in map(
             clean_bytes_to_str, diff_process.stdout.readlines()  # type: ignore
         ):
-            # Only gather lines that include added migrations
+            # Only gather lines that include added migrations.
             if self.is_migration_file(line):
-                app_label, name = split_migration_path(line)
-                if migrations_list is None or (app_label, name) in migrations_list:
-                    if (app_label, name) in self.migration_loader.disk_migrations:
-                        migration = self.migration_loader.disk_migrations[
-                            app_label, name
-                        ]
+                # Find the migration objects with similar path.
+                suitable_migrations = [
+                    migration
+                    for path, migration in diskpath_and_migration.items()
+                    if path.endswith(line)
+                ]
+                if suitable_migrations:
+                    migration = suitable_migrations[0]
+                    if (
+                        migrations_list is None
+                        or (migration.app_label, migration.name) in migrations_list
+                    ):
                         migrations.append(migration)
-                    else:
-                        logger.info(
-                            "Found migration file (%s, %s) "
-                            "that is not present in loaded migration.",
-                            app_label,
-                            name,
+                    if len(suitable_migrations) > 1:
+                        # If multiple migration founds, we chose one randomly, but need
+                        # to alert that it's not very precise.
+                        logger.warning(
+                            "Found multiple migration files matching altered "
+                            "file path %s. Choose (%s, %s) opportunistically.",
+                            line,
+                            migration.app_label,
+                            migration.name,
                         )
+                else:
+                    app_label, name = split_migration_path(line)
+                    logger.info(
+                        "Found migration file (%s, %s) "
+                        "that is not present in loaded migration.",
+                        app_label,
+                        name,
+                    )
         diff_process.wait()
 
         if diff_process.returncode != 0:
@@ -422,7 +474,11 @@ class MigrationLinter:
                     yield migration
 
     def should_ignore_migration(
-        self, app_label: str, migration_name: str, operations: Iterable[Operation] = ()
+        self,
+        app_label: str,
+        migration_name: str,
+        operations: Iterable[Operation] = (),
+        is_initial: bool = False,
     ) -> bool:
         return (
             (self.include_apps and app_label not in self.include_apps)
@@ -448,6 +504,7 @@ class MigrationLinter:
                 and (app_label, migration_name)
                 in self.migration_loader.applied_migrations
             )
+            or (self.ignore_initial_migrations and is_initial)
         )
 
     def analyse_data_migration(

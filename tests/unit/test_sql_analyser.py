@@ -66,11 +66,26 @@ class MySqlAnalyserTestCase(SqlAnalyserTestCase):
         ]
         self.assertBackwardIncompatibleSql(sql)
 
+    def test_add_not_null_without_dropping_default(self):
+        sql = (
+            "ALTER TABLE `app_add_not_null_column_a` ADD COLUMN `new_not_null_field` integer DEFAULT 1 NOT NULL;",
+        )
+        self.assertValidSql(sql)
+
+        sql = "ALTER TABLE `app_add_not_null_column_followed_by_default_a` ADD COLUMN `not_null_field_db_default` integer DEFAULT (PI()) NOT NULL;"
+        self.assertValidSql(sql)
+
     def test_add_not_null_followed_by_default(self):
         sql = [
             "ALTER TABLE `app_add_not_null_column_followed_by_default_a` ADD COLUMN `new_not_null_field` integer DEFAULT 1 NOT NULL;",
             "ALTER TABLE `app_add_not_null_column_followed_by_default_a` ALTER COLUMN `new_not_null_field` DROP DEFAULT;",
             "ALTER TABLE `app_add_not_null_column_followed_by_default_a` ALTER COLUMN `new_not_null_field` SET DEFAULT '1';",
+        ]
+        self.assertValidSql(sql)
+
+    def test_add_trigger(self):
+        sql = [
+            'CREATE OR REPLACE FUNCTION "public"._pgtrigger_should_ignore( trigger_name NAME ) RETURNS BOOLEAN AS $$ DECLARE _pgtrigger_ignore TEXT[]; _result BOOLEAN; BEGIN BEGIN SELECT INTO _pgtrigger_ignore CURRENT_SETTING(\'pgtrigger.ignore\'); EXCEPTION WHEN OTHERS THEN END; IF _pgtrigger_ignore IS NOT NULL THEN SELECT trigger_name = ANY(_pgtrigger_ignore) INTO _result; RETURN _result; ELSE RETURN FALSE; END IF; END; $$ LANGUAGE plpgsql; CREATE OR REPLACE FUNCTION pgtrigger_update_field_5d480() RETURNS TRIGGER AS $$ BEGIN IF ("public"._pgtrigger_should_ignore(TG_NAME) IS TRUE) THEN IF (TG_OP = \'DELETE\') THEN RETURN OLD; ELSE RETURN NEW; END IF; END IF; NEW.field := 1; RETURN NEW; END; $$ LANGUAGE plpgsql; DROP TRIGGER IF EXISTS pgtrigger_update_field_5d480 ON "app_add_trigger_a"; CREATE TRIGGER pgtrigger_update_field_5d480 BEFORE UPDATE ON "app_add_trigger_a" FOR EACH ROW WHEN (OLD."field" IS NOT DISTINCT FROM NEW."field") EXECUTE PROCEDURE pgtrigger_update_field_5d480(); COMMENT ON TRIGGER pgtrigger_update_field_5d480 ON "app_add_trigger_a" IS \'8d42224131cefae42a0fa95e72ee29e16e2058ad\'; ; COMMIT;'
         ]
         self.assertValidSql(sql)
 
@@ -141,6 +156,15 @@ class SqliteAnalyserTestCase(SqlAnalyserTestCase):
         ]
         self.assertBackwardIncompatibleSql(sql)
 
+    def test_add_not_null_without_dropping_default(self):
+        sql = [
+            'CREATE TABLE "new__app_add_not_null_column_followed_by_default_a" ("id" integer NOT NULL PRIMARY KEY AUTOINCREMENT, "not_null_field_db_default" integer DEFAULT (PI()) NOT NULL, "field" integer NOT NULL, "not_null_field" integer NOT NULL);',
+            'INSERT INTO "new__app_add_not_null_column_followed_by_default_a" ("id", "field", "not_null_field") SELECT "id", "field", "not_null_field" FROM "app_add_not_null_column_followed_by_default_a";',
+            'DROP TABLE "app_add_not_null_column_followed_by_default_a";',
+            'ALTER TABLE "new__app_add_not_null_column_followed_by_default_a" RENAME TO "app_add_not_null_column_followed_by_default_a";',
+        ]
+        self.assertBackwardIncompatibleSql(sql)
+
     def test_create_table_with_not_null(self):
         sql = 'CREATE TABLE "app_create_table_with_not_null_column_a" ("id" integer NOT NULL PRIMARY KEY AUTOINCREMENT, "field" varchar(150) NOT NULL);'
         self.assertValidSql(sql)
@@ -200,6 +224,10 @@ class PostgresqlAnalyserTestCase(SqlAnalyserTestCase):
     def test_alter_column(self):
         sql = 'ALTER TABLE "app_alter_column_a" ALTER COLUMN "field" TYPE varchar(10) USING "field"::varchar(10);'
         self.assertBackwardIncompatibleSql(sql)
+
+    def test_add_not_null_without_dropping_default(self):
+        sql = 'ALTER TABLE "app_add_not_null_column_followed_by_default_a" ADD COLUMN "not_null_field_db_default" integer DEFAULT (PI()) NOT NULL;'
+        self.assertValidSql(sql)
 
     def test_not_null_followed_by_default(self):
         sql = [
@@ -288,6 +316,13 @@ class PostgresqlAnalyserTestCase(SqlAnalyserTestCase):
         ]
         self.assertValidSql(sql)
         sql = [
+            'CREATE TABLE "films" ("title" text);',
+            'ALTER TABLE "films" ADD CONSTRAINT "title_not_empty" CHECK (char_length("title") > 0)'
+            'CREATE INDEX ON "films" ((lower("title")));',
+        ]
+        self.assertValidSql(sql)
+        # Not the same column or tables.
+        sql = [
             'CREATE TABLE "some_table" ("title" text);',
             'CREATE INDEX ON "films" ((lower("title")));',
         ]
@@ -307,6 +342,10 @@ class PostgresqlAnalyserTestCase(SqlAnalyserTestCase):
     def test_create_index_concurrently_where(self):
         sql = 'CREATE INDEX CONCURRENTLY "index_name" ON "table_name" ("a_column") WHERE ("some_column" IS NOT NULL);'
         self.assertValidSql(sql)
+
+    def test_create_unique_index_concurrently_where(self):
+        sql = 'CREATE UNIQUE INDEX CONCURRENTLY "index_name" ON "table_name" ("a_column") WHERE ("some_column" IS NOT NULL);'
+        self.assertBackwardIncompatibleSql(sql, "ADD_UNIQUE")
 
     def test_drop_index_non_concurrently(self):
         sql = "DROP INDEX ON films"
@@ -330,6 +369,23 @@ class PostgresqlAnalyserTestCase(SqlAnalyserTestCase):
             "COMMIT;",
         ]
         self.assertWarningSql(sql, code="CREATE_INDEX_EXCLUSIVE")
+
+    def test_create_index_exclusive_with_prior_table_creation(self):
+        sql = [
+            "BEGIN;",
+            'CREATE TABLE "users" ("email" text);',
+            'CREATE INDEX "user_email" ON "users" ("email");',
+            "COMMIT;",
+        ]
+        self.assertValidSql(sql)
+        sql = [
+            "BEGIN;",
+            'CREATE TABLE "users" ("id" number);',
+            'ALTER TABLE "users" ADD COLUMN "email" varchar(254) NULL;',
+            'CREATE INDEX "user_email" ON "users" ("email");',
+            "COMMIT;",
+        ]
+        self.assertValidSql(sql)
 
     def test_create_concurrently_index_exclusive(self):
         sql = [
